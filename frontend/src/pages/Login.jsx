@@ -1,22 +1,45 @@
-import { registerUser } from '../services/authService';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion'; // 引入动画库做切换效果
+import { motion, AnimatePresence } from 'framer-motion';
 import { Mail, Lock, ArrowRight, Loader2, Bot, User } from 'lucide-react';
+
+const CONFIG = {
+    API_BASE_URL: 'http://localhost:8000/api/auth', // 确保端口号和你后端一致
+}
+
+const apiService = {
+    // 修复：直接接收处理好的 payload，不再在内部做字段映射，保持纯粹
+    auth: async (payload) => {
+        try {
+            console.log("👉 发送给后端的 Payload:", payload); // Debug日志
+
+            const response = await fetch(`${CONFIG.API_BASE_URL}/auth_user`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                console.error("❌ API 报错详情:", data);
+                throw new Error(data.detail || "请求失败");
+            }
+
+            return data;
+        } catch (error) {
+            console.error("❌ 网络或系统错误:", error);
+            throw error;
+        }
+    }
+}
 
 export default function LoginPage() {
     const navigate = useNavigate();
-
-    // === 1. 定义“模式开关” ===
-    // true = 登录模式, false = 注册模式
     const [isLoginMode, setIsLoginMode] = useState(true);
-
     const [isLoading, setIsLoading] = useState(false);
-    // 表单数据增加一个 name (注册时用)
-    const [formData, setFormData] = useState({ name: '旅客1216', email: '', password: '' });
+    const [formData, setFormData] = useState({ name: '', email: '', password: '' });
     const [error, setError] = useState('');
-
-
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -24,102 +47,80 @@ export default function LoginPage() {
         setError('');
 
         try {
-            if (isLoginMode) {
-                // TODO 这一部分的API还没写，后续需要换成真实的API
-                console.log("正在执行登录...", formData);
+            console.log("🚀 开始提交, 当前模式:", isLoginMode ? "登录" : "注册");
 
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            // 1. 基础校验
+            if (!formData.email || !formData.password) {
+                throw new Error('请填写邮箱和密码');
+            }
+            if (!isLoginMode && !formData.name) {
+                throw new Error('注册模式下需要填写用户名');
+            }
 
-                if (formData.email && formData.password) {
-                    // 1. 设置 Cookie
-                    document.cookie = `user_token=mock-token; path=/`;
+            // 2. 构造 Payload (根据后端逻辑：有 username=注册，无 username=登录)
+            // 登录时只传 email 和 password
+            // 注册时传 username, email, password
+            const payload = {
+                email: formData.email,
+                password: formData.password,
+                // 如果是注册模式，传入 name 作为 username；如果是登录，传入 null 或不传
+                username: isLoginMode ? null : formData.name
+            };
 
-                    // 2. 准备用户信息对象
-                    const loginUserInfo = {
-                        name: formData.email.split('@')[0],
-                        role: 'user'
-                    };
+            // 3. 发送请求
+            const response = await apiService.auth(payload);
 
-                    // 3. 存入本地存储
-                    localStorage.setItem('user_info', JSON.stringify(loginUserInfo));
+            console.log("✅ 后端返回成功:", response);
 
-                    // 4. 跳转 (带参数)
-                    navigate('/chat', {
-                        state: { userData: loginUserInfo }
-                    });
-                } else {
-                    throw new Error('账号或密码错误');
-                }
+            // 4. 处理成功的响应
+            // 修正点：后端返回的是 access_token，不是 cookie，也不是 response.cookie
+            if (response.access_token) {
+                // 设置 Cookie (注意：这种手动设置不是最安全的，但在简单Demo中可用)
+                document.cookie = `user_token=${response.access_token}; path=/; max-age=86400`; // 设置1天过期
 
-            } else {
-                console.log("正在执行注册...", formData);
-
-                // 1. 基础校验
-                if (!formData.name || !formData.email || !formData.password) {
-                    throw new Error('请填写完整注册信息');
-                }
-
-                // 2. 构造发送给后端的包 { ID, username, password }
-                const payload = {
-                    ID: Date.now().toString(), // 前端生成唯一ID
-                    username: formData.name,   // 映射: name -> username
-                    password: formData.password
+                // 准备用户信息
+                const userInfo = {
+                    name: response.username || formData.name || 'User', // 优先用后端返回的名字
+                    email: formData.email, // 补充 email 信息
+                    role: 'user'
                 };
 
-                // 3. await 等待后端响应 (这里会暂停，直到后端返回结果)
-                const response = await registerUser(payload); //实际应该是一个结构体/json
-                console.log("后端注册成功返回:", response);
+                console.log("💾 正在保存用户信息并跳转:", userInfo);
+                localStorage.setItem('user_info', JSON.stringify(userInfo));
+                localStorage.setItem('user_token', response.access_token);
 
-                // 4. 注册成功后续处理
-                if (response.success) {
-                    document.cookie = `user_token=${response.cookie}; path=/`;
-
-
-                    // 5. 定义用户信息对象 (修复了之前 userInfo 未定义的问题)
-                    const newUserInfo = {
-                        name: formData.name,
-                        role: 'user'
-                    };
-
-                    // 6. 存入本地存储
-                    localStorage.setItem('user_info', JSON.stringify(newUserInfo));
-
-                    // 7. 跳转 (带参数)
-                    navigate('/chat', {
-                        state: { userData: newUserInfo }
-                    });
-                } else {
-                    throw new Error('注册失败，这可能是我们的服务器出来点问题，请稍后再试');
-                }
+                console.log("存入 Token 成功，准备跳转...");
+                // 5. 跳转
+                navigate('/chat', {
+                    state: { userData: userInfo }
+                });
+            } else {
+                throw new Error("登录成功但未收到 Token");
             }
 
         } catch (err) {
-            // 捕获所有错误（包括 throw new Error 和 网络请求失败）
-            console.error(err);
-            setError(err.message || '操作失败，请检查网络或重试');
+            console.error("💀 捕获到错误:", err);
+            setError(err.message || '操作失败，请重试');
         } finally {
-            // 无论成功失败，最后都要关闭 Loading 转圈
             setIsLoading(false);
         }
     };
-    // 切换模式的函数
+
     const toggleMode = () => {
         setIsLoginMode(!isLoginMode);
-        setError(''); // 切换时清空错误提示
-        setFormData({ name: '', email: '', password: '' }); // 切换时清空表单(可选)
+        setError('');
+        // 切换模式时不一定要清空数据，看体验需求，这里保留不清空更友好
     };
 
     return (
         <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 relative overflow-hidden">
-
-            {/* 背景保持不变 */}
+            {/* 背景动画 */}
             <div className="absolute inset-0 pointer-events-none">
                 <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-blue-400/20 rounded-full blur-[100px] animate-pulse-slow" />
                 <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-indigo-400/20 rounded-full blur-[100px] animate-pulse-slow delay-1000" />
             </div>
 
             <motion.div
-                // 这里的 layout 属性让卡片高度变化时有平滑动画
                 layout
                 transition={{ duration: 0.3 }}
                 className="bg-white/80 backdrop-blur-xl w-full max-w-md rounded-3xl shadow-2xl border border-white/50 p-8 relative z-10"
@@ -128,7 +129,6 @@ export default function LoginPage() {
                     <div className="w-12 h-12 bg-blue-600 rounded-xl flex items-center justify-center text-white mb-4 shadow-lg shadow-blue-600/30">
                         <Bot size={28} />
                     </div>
-                    {/* 标题根据模式变化 */}
                     <h2 className="text-2xl font-bold text-slate-800">
                         {isLoginMode ? '欢迎回来' : '创建新账号'}
                     </h2>
@@ -138,8 +138,7 @@ export default function LoginPage() {
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-5">
-
-                    {/* === 注册模式下才显示的字段：用户名 === */}
+                    {/* 用户名输入框 (仅注册显示) */}
                     <AnimatePresence>
                         {!isLoginMode && (
                             <motion.div
@@ -165,7 +164,7 @@ export default function LoginPage() {
                         )}
                     </AnimatePresence>
 
-                    {/* 邮箱 (一直显示) */}
+                    {/* 邮箱 */}
                     <div className="space-y-2">
                         <label className="text-sm font-medium text-slate-700 ml-1">电子邮箱</label>
                         <div className="relative group">
@@ -181,7 +180,7 @@ export default function LoginPage() {
                         </div>
                     </div>
 
-                    {/* 密码 (一直显示) */}
+                    {/* 密码 */}
                     <div className="space-y-2">
                         <div className="flex justify-between ml-1">
                             <label className="text-sm font-medium text-slate-700">密码</label>
@@ -202,12 +201,14 @@ export default function LoginPage() {
                         </div>
                     </div>
 
+                    {/* 错误提示 */}
                     {error && (
-                        <div className="p-3 rounded-lg bg-red-50 text-red-600 text-sm font-medium text-center animate-shake">
+                        <div className="p-3 rounded-lg bg-red-50 text-red-600 text-sm font-medium text-center animate-pulse">
                             {error}
                         </div>
                     )}
 
+                    {/* 提交按钮 */}
                     <button
                         type="submit"
                         disabled={isLoading}
@@ -216,11 +217,10 @@ export default function LoginPage() {
                         {isLoading ? (
                             <>
                                 <Loader2 size={20} className="animate-spin" />
-                                即将跳转 ……
+                                处理中...
                             </>
                         ) : (
                             <>
-                                {/* 按钮文字根据模式变化 */}
                                 {isLoginMode ? '立即登录' : '创建账号'}
                                 <ArrowRight size={20} />
                             </>
@@ -228,11 +228,8 @@ export default function LoginPage() {
                     </button>
                 </form>
 
-                {/* 底部切换按钮 */}
                 <div className="mt-8 text-center text-sm text-slate-500">
                     {isLoginMode ? '还没有账号? ' : '已有账号? '}
-
-                    {/* 这里不使用 navigate，而是切换 state */}
                     <button
                         onClick={toggleMode}
                         className="text-blue-600 font-semibold hover:text-blue-700 transition-colors underline-offset-4 hover:underline"
@@ -240,7 +237,6 @@ export default function LoginPage() {
                         {isLoginMode ? '免费注册' : '直接登录'}
                     </button>
                 </div>
-
             </motion.div>
         </div>
     );

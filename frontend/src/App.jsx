@@ -2,27 +2,39 @@
 import React from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-// 引入两个不同的页面
+// 引入页面
 import ChatPage from './pages/ChatPage';
-import HomePage from './pages/HomePage'; // <--- 引入你刚写的根页面
-import Login from './pages/Login'
-import ExportPage from './pages/Expert'
+import HomePage from './pages/HomePage';
+import Login from './pages/Login';
+import ExpertPage from './pages/Expert';
+
+// 引入刚才新建的鉴权组件
+import RequireAuth from './pages/RequireAuth';
+
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* 首页,不确定是否需要(直接跳转到聊天页面似乎也行)  
-            最好是加一个判断，如果发现登录的cookie则直接跳转到Chat页面 */}
+        {/* 首页 */}
         <Route path="/" element={<HomePage />} />
 
-        {/* 聊天页面的路径 */}
-        <Route path="/chat" element={<ChatPage />} />
-
-        {/* 登陆页面 */}
+        {/* 登录页 */}
         <Route path="/login" element={<Login />} />
 
-        {/* 专家页面 */}
-        <Route path="/expert" element={<ExportPage />} />
+        {/* 专家页 */}
+        <Route path="/expert" element={<ExpertPage />} />
+
+        {/* --- 重点：聊天页 (受保护) --- */}
+        {/* 这种写法是 V6 中最推荐的：直接把 RequireAuth 包在外面 */}
+        <Route
+          path="/chat"
+          element={
+            <RequireAuth>
+              <ChatPage />
+            </RequireAuth>
+          }
+        />
+
       </Routes>
     </BrowserRouter>
   );

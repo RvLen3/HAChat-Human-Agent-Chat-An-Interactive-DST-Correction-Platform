@@ -24,12 +24,42 @@ export default function HomePage() {
     const navigate = useNavigate();
     const [scrolled, setScrolled] = useState(false);
     const [startIndex, setStartIndex] = useState(0);
+    const [userNum, setUserNum] = useState(1);
 
     // 滚动监听
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 20);
         window.addEventListener('scroll', handleScroll);
         return () => window.removeEventListener('scroll', handleScroll);
+    }, []);
+
+    useEffect(() => {
+        // 定义获取数据的函数
+        const fetchUserCount = async () => {
+            try {
+                // 假设你的后端接口是这个，请根据实际情况修改
+                const response = await fetch('http://localhost:8000/api/utils/get_user_num');
+                if (response.ok) {
+                    const data = await response.json();
+                    // 假设后端返回格式是 { count: 100 }
+                    setUserNum(data.user_num);
+                    console.log("用户数量已更新:", data.user_num);
+                }
+            } catch (error) {
+                console.error("获取用户数量失败:", error);
+            }
+        };
+        fetchUserCount();
+
+        // 2. 设置定时器：每 10 分钟 (10 * 60 * 1000 毫秒) 执行一次
+        const intervalId = setInterval(() => {
+            fetchUserCount();
+        }, 10 * 60 * 1000);
+
+        // 3. 清理函数：组件卸载（比如跳到别的页面）时，停止计时器
+        // 这是一个良好的编程习惯，防止后台一直跑报错
+        return () => clearInterval(intervalId);
+
     }, []);
 
     // 轮播定时器
@@ -150,7 +180,7 @@ export default function HomePage() {
                                     })}
                                 </AnimatePresence>
                             </div>
-                            <p>已有 1 用户正在使用</p>
+                            <p>已有 {userNum} 用户正在使用</p>
                         </div>
 
                     </div>
