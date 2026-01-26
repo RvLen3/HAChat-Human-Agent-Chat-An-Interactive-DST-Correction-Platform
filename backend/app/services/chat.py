@@ -5,10 +5,13 @@ import copy
 import asyncio
 from typing import Dict, Any
 
-# 引入我们拆分出去的模块
 from app.core.nlp.models import sys_nlu, sys_dst, sys_policy, sys_nlg
 from app.core.nlp.session import get_or_init_session
 from app.db.memory import pending_tasks_db, already_tasks_db
+from app.db.cruds import get_user_by_email
+from sqlalchemy.orm import Session
+from sqlalchemy import desc
+from app.db.models import ChatSession
 
 async def process_chat_classify(text: str, session_id: str, debug_mode: bool):
     print(f"\n[{text}] 收到分析请求...")
@@ -124,3 +127,94 @@ async def process_chat_answer(session_id: str, slots: Dict[str, Any], if_hard: b
         "content": response_text,
         "source": 'Export' if if_hard else 'AI-Agent'
     }
+
+# TODO 和数据库相关的操作不要用异步,后续做完后可能需要修改，目前先按这个来
+# 获取用户的历史聊天记录用于展示
+def get_user_chat_history(db: Session, user_email: str, limit: int = 20):
+    """
+    根据用户email查询会话历史,返回近期的几个对话
+    
+    参数:
+    - limit: 限制返回的数量，默认最近20条
+    """
+    user = get_user_by_email(db, user_email)
+    if not user:
+        return [] # 或者抛出 HTTPException
+
+    sessions = db.query(ChatSession)\
+                 .filter(ChatSession.user_id == user.id)\
+                 .order_by(desc(ChatSession.updated_at))\
+                 .limit(limit)\
+                 .all()
+    
+    return [
+        {
+            "session_id": s.session_id, 
+            "title": s.title or "新会话"  # 这里还可以顺便处理一下空标题
+        } 
+        for s in sessions
+    ]
+
+
+# 1. 存聊天记录
+def insert_user_chat_history(db: Session, session_id: str, user_email: str, content: str,role: str):
+    """
+    存入用户发送的消息
+    参数 content: 即原代码中的 Message，改为 content 更符合语义
+    """
+    
+    # 2. 统一获取一次时间，确保 session 和 message 的时间严格一致
+    current_time = datetime.utcnow()
+
+    # 查用户
+    user = get_user_by_email(db, user_email)
+    if not user:
+        print(f"Error: User {user_email} not found.")
+        return False
+
+    try:
+        # --- 处理会话 (Session) ---
+        chat_session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+        
+        if not chat_session:
+            # 如果是新会话，创建它
+            # 处理标题：如果内容太长，截取前50个字符作为标题
+            session_title = content[:50] + "..." if len(content) > 50 else content
+            
+            chat_session = ChatSession(
+                session_id=session_id, 
+                user_id=user.id, 
+                title=session_title,
+                created_at=current_time,
+                updated_at=current_time
+            )
+            db.add(chat_session)
+        else:
+            # 如果会话已存在，仅更新时间
+            chat_session.updated_at = current_time
+            # SQLAlchemy 会自动追踪 chat_session 的变化，
+            # 这里不需要再次 db.add(chat_session)，但写了也没错。
+
+        # --- 处理消息 (Message) ---
+        new_message = ChatMessage(
+            session_id=session_id, 
+            role=role, 
+            content=content,
+            created_at=current_time
+            # agent_state 和 expert_state 默认为 None 或数据库默认值
+        )
+        db.add(new_message)
+
+        # 3. 原子性提交：只 commit 一次
+        db.commit()
+        
+        # 刷新对象以获取数据库生成的 ID (可选，如果你后续需要用到 new_message.id)
+        db.refresh(new_message) 
+        
+        return True
+
+    except Exception as e:
+        # 4. 异常处理：如果中间出错，回滚所有操作
+        db.rollback()
+        print(f"Database Insert Error: {e}")
+        return False
