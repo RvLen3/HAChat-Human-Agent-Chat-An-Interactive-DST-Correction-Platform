@@ -1,0 +1,28 @@
+# 1. 忽略不需要上传的 ConvLab 库
+ConvLab/
+
+# 2. Python 后端通用忽略 (fastapiproject/backend)
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+.env   
+.db
+.sqlite3
+
+
+backend/.env
+backend/*.db
+# 3. 前端通用忽略 (fastapiproject/frontend)
+node_modules/
+dist/
+build/
+.DS_Store
+
+# 4. 其他 IDE 配置文件 (可选)
+.idea/
+.vscode/
