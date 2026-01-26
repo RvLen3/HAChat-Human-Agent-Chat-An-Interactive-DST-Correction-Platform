@@ -46,11 +46,6 @@ const apiService = {
                     text: "QUERY_ANSWER", // 后端 ChatRequest 需要 text 字段，虽然可能不用，但为了验证通过给一个占位符
                     session_id: session_id,
                     slots: slots,
-                    // 注意：虽然你后端 ChatRequest 里没写 if_hard，但你在逻辑里用了 ChatRequest.if_hard
-                    // 建议你确认一下后端 ChatRequest 定义是否加了 if_hard 字段。
-                    // 这里我作为 extra 字段传进去，或者你需要修改后端模型。
-                    // 为了保险，我把 if_hard 放到 slots 里或者作为 query param? 
-                    // 按照你的代码逻辑: hard = ChatRequest.if_hard，说明你的 Pydantic 模型里必须有这个字段。
                     if_hard: if_hard
                 })
             });
@@ -132,7 +127,7 @@ export default function ChatPage() {
     // --- Handlers ---
     const handelSetting = async () => { alert('设置模块正在开发中，敬请期待'); }
 
-    // ★★★ 核心发送逻辑 (串行调用) ★★★
+
     const handleSend = async () => {
         if (!input.trim() || isLoading) return;
 

@@ -13,8 +13,9 @@ async def chat_input(req: UserInputRequest):
     return await chat_service.process_chat_classify(req.text, req.session_id, req.debugMode)
 
 @router.post('/answer')
-async def chat_answer(req: ChatRequest):
-    return await chat_service.process_chat_answer(req.session_id, req.slots, req.if_hard)
+async def chat_answer(req: ChatRequest,db:Session=Depends(get_db)):
+    # 在这个函数内部将当前对话存到数据库中
+    return await chat_service.process_chat_answer(db,req.session_id, req.slots, req.if_hard)
 
 from fastapi import APIRouter, Depends, Query # 引入 Query
 
@@ -38,3 +39,30 @@ def insert_user_chat_history(
         req.text,
         'user'
     )
+
+# app/routers/history.py (假设你放在这里)
+
+from app.db.models import ChatMessage # 记得导入模型
+from sqlalchemy import asc
+
+# 获取指定 Session 的所有消息详情
+@router.get('/history/{session_id}/messages')
+def get_session_details(session_id: str, db: Session = Depends(get_db)):
+    # 按时间正序查询消息
+    messages = db.query(ChatMessage)\
+                 .filter(ChatMessage.session_id == session_id)\
+                 .order_by(asc(ChatMessage.created_at))\
+                 .all()
+    
+    if not messages:
+        return []
+
+    return [
+        {
+            "role": m.role,         
+            "content": m.content,
+            "source": "History",    # 历史记录统一标记来源
+            "created_at": m.created_at
+        }
+        for m in messages
+    ]
