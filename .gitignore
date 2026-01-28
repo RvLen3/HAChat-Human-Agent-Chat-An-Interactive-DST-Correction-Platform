@@ -25,4 +25,4 @@ build/
 
 # 4. 其他 IDE 配置文件 (可选)
 .idea/
-.vscode/
+.vscode/*.db 
