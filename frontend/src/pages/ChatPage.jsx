@@ -15,11 +15,9 @@ const CONFIG = {
 };
 
 const apiService = {
-    // --- [核心修复] 获取左侧历史会话列表 ---
+
     getHistoryList: async (email) => {
         try {
-            // 这里的 endpoint 对应后端 @router.get('/history')
-            // 确保后端 history.py 的路由已经 include 到 main.py 的 /api 下
             const url = `${CONFIG.API_BASE_URL}/chat/history?email=${encodeURIComponent(email)}`;
             console.log("Fetching history from:", url); // Debug log
 
