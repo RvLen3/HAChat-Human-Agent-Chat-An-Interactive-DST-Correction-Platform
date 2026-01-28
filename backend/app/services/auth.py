@@ -24,7 +24,7 @@ def authenticate_user(db: Session, email: str, password: str, username: Optional
     
     user = None # 用于存放最终认证成功的用户对象
 
-
+    # 注册
     if username:
         if cruds.get_user_by_email(db, email):
              raise HTTPException(status_code=400, detail="Email already registered")

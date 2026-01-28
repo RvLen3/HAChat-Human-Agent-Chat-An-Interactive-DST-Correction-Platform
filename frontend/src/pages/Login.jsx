@@ -88,6 +88,7 @@ export default function LoginPage() {
                 console.log("💾 正在保存用户信息并跳转:", userInfo);
                 localStorage.setItem('user_info', JSON.stringify(userInfo));
                 localStorage.setItem('user_token', response.access_token);
+                localStorage.setItem('user_email', formData.email);
 
                 console.log("存入 Token 成功，准备跳转...");
                 // 5. 跳转
