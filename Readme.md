@@ -100,8 +100,17 @@ H_AChat/
 │   └── package.json
 └── README.md
 ```
-
+## 4. 傻瓜式流程
+**You need 2 command window to run backend and frontend**
+* step1 : cmd1 : cd H_AChat
+* step2 : cmd1 : activate your environment
+* step3 : cmd1 : cd fastapiProject/backend
+* step4 : cmd1 : uvicorn app.main:app --reload
+* step5 : cmd2 : cd H_AChat/fastapiProject/frontend
+* step6 : cmd2 : npm run dev
+That is ok!
 ## 📝 开发者日志
 
 * **v0.1**: 完成了前端页面以及API接口的初步设计，实现了最基本的对话以及slot修改功能。
 * **v0.2**: 完成了登录部分以及用户cookie信息的检查，实现了数据库相关模块和一些小细节的完善。
+* **v0.3**: 完成了会话历史的保存和session_id的绑定,基本实现了项目所需的主要流程。
