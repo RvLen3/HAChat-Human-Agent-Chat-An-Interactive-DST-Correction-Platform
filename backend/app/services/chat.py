@@ -51,12 +51,13 @@ async def process_chat_classify(db: Session, user_email: str, text: str, session
     session_data['dst_state'] = copy.deepcopy(state)
     
     # 6. 提取槽位
+    print('state:',state)
     current_slots = state.get('belief_state', {})
     print(f"🔸 DST 提取槽位: {current_slots}")
 
     # 7. (兜底策略) NLU 补丁
     if not current_slots and nlu_output:
-        print("⚠️ 警告: DST 未提取到槽位，尝试从 NLU 结果构建临时展示数据...")
+        print(" warning: DST 未提取到槽位，尝试从 NLU 结果构建临时展示数据...")
         temp_slots = {}
         for act in nlu_output:
             if len(act) >= 4:
@@ -143,7 +144,7 @@ async def process_chat_answer(db: Session, session_id: str, slots: Dict[str, Any
     # Policy 决策
     sys_policy.vector.state = current_state
     sys_action = sys_policy.predict(current_state)
-    # print(f"Policy 决策: {sys_action}")
+    print(f"Policy 决策: {sys_action}")
     
     # NLG 生成回复
     response_text = sys_nlg.generate(sys_action)
