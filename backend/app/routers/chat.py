@@ -9,8 +9,10 @@ from fastapi import Depends
 router = APIRouter()
 
 @router.post("/classify")
-async def chat_input(req: UserInputRequest):
-    return await chat_service.process_chat_classify(req.text, req.session_id, req.debugMode)
+async def chat_input(req: UserInputRequest,db:Session=Depends(get_db)):
+    # db: Session, user_email: str, text: str, session_id: str, debug_mode: bool
+    print(req)
+    return await chat_service.process_chat_classify(db, req.email, req.text, req.session_id, req.debugMode)
 
 @router.post('/answer')
 async def chat_answer(req: ChatRequest,db:Session=Depends(get_db)):

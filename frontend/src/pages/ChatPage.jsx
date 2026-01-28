@@ -18,6 +18,7 @@ const apiService = {
     // 接口 A: 意图分析
     classify: async (text, debugMode, session_id) => {
         try {
+            const userEmail = localStorage.getItem('user_email');
             const response = await fetch(`${CONFIG.API_BASE_URL}/chat/classify`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -25,6 +26,7 @@ const apiService = {
                     text: text,
                     debugMode: debugMode,// 对应后端 UserInputRequest.debugMode (bool)
                     session_id: session_id,
+                    email: userEmail // email需要在登录时存到前端
                 })
             });
             if (!response.ok) throw new Error("Classify API Error");

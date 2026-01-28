@@ -3,7 +3,7 @@ import { Navigate, useLocation } from 'react-router-dom';
 
 // 判断是否登录
 const UseAuth = () => {
-    const token = localStorage.getItem('user_token');
+    const token = localStorage.getItem('user_email');
     // 注意：这里只是简单的非空判断，return !!token 意味着只要有值就为 true
     return !!token;
 }

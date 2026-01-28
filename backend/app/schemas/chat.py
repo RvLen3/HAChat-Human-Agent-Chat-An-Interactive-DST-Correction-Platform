@@ -13,7 +13,7 @@ class UserInputRequest(BaseModel):
     text: str
     debugMode: bool
     session_id: Optional[str] = None
-
+    email: Optional[str] = None
 class ExpertResolveRequest(BaseModel):
     session_id: str
     corrected_slots: Optional[Dict[str, Any]] = {}

@@ -16,34 +16,45 @@ import json
 from datetime import datetime
 
 
-async def process_chat_classify(text: str, session_id: str, debug_mode: bool):
+async def process_chat_classify(db: Session, user_email: str, text: str, session_id: str, debug_mode: bool):
     print(f"\n[{text}] 收到分析请求...")
     
-    # 获取会话
+    # 1. 确保有 Session ID
+    # 如果前端没传 session_id，后端生成一个新的
     current_session_id = f"session_{int(time.time())}_{random.randint(1,100)}" if not session_id else session_id
+    
+
+    save_chat_message(
+        db=db,
+        session_id=current_session_id, 
+        content=text,
+        role="user",
+        user_email=user_email 
+    )
+
+    # 获取内存中的会话状态
     session_data = get_or_init_session(current_session_id)
     
-    # 1. 恢复 DST 状态
+    # 2. 恢复 DST 状态
     sys_dst.state = copy.deepcopy(session_data['dst_state'])
-
     sys_dst.state['history'].append(f"User:{text}")
     
-    # 2. NLU 预测
+    # 3. NLU 预测
     nlu_output = sys_nlu.predict(text)
     print(f"🔹 NLU 识别结果: {nlu_output}")
     
-    # 3. DST 更新状态
+    # 4. DST 更新状态
     state = sys_dst.update()
-    print('dst_state:', state)
+    # print('dst_state:', state)
     
-    # 4. 保存状态回内存
+    # 5. 保存状态回内存
     session_data['dst_state'] = copy.deepcopy(state)
     
-    # 5. 提取槽位
+    # 6. 提取槽位
     current_slots = state.get('belief_state', {})
     print(f"🔸 DST 提取槽位: {current_slots}")
 
-    # 6. (兜底策略) NLU 补丁
+    # 7. (兜底策略) NLU 补丁
     if not current_slots and nlu_output:
         print("⚠️ 警告: DST 未提取到槽位，尝试从 NLU 结果构建临时展示数据...")
         temp_slots = {}
@@ -97,7 +108,7 @@ async def process_chat_answer(db: Session, session_id: str, slots: Dict[str, Any
     agent_original_slots = copy.deepcopy(slots)
     expert_final_slots = None # 初始化专家 Slot
 
-    # 获取内存中的会话状态 (假设你有一个全局或缓存的 session 管理器)
+    # 获取内存中的会话状态
     session_data = get_or_init_session(session_id)
 
     # --- 专家介入逻辑 ---
@@ -108,17 +119,17 @@ async def process_chat_answer(db: Session, session_id: str, slots: Dict[str, Any
         
         while not key and timeout < 60:
             await asyncio.sleep(1)
-            # check_expert_completion 需要返回最新的 slots 和 完成状态
-            # 注意：这里的 slots 已经被专家修改了
+            # check_expert_completion 返回 (修正后的slots, True)
             current_slots, key = check_expert_completion(session_id) 
             timeout += 1
 
         if timeout >= 60:
+            # 超时处理：这里也可以选择存一条错误消息到数据库，视需求而定
             return {"content": "专家响应超时，请稍后重试。", "source": "ERROR"}
         
         # 拿到专家提交的最终 Slots
         slots = current_slots 
-        expert_final_slots = current_slots # 用于存入数据库 expert_state
+        expert_final_slots = current_slots # 只有 Hard 模式下这个变量才会有值
         print(f"SUCC: 收到专家修正槽位: {slots}")
 
     # --- 生成回答逻辑 ---
@@ -132,7 +143,7 @@ async def process_chat_answer(db: Session, session_id: str, slots: Dict[str, Any
     # Policy 决策
     sys_policy.vector.state = current_state
     sys_action = sys_policy.predict(current_state)
-    print(f"Policy 决策: {sys_action}")
+    # print(f"Policy 决策: {sys_action}")
     
     # NLG 生成回复
     response_text = sys_nlg.generate(sys_action)
@@ -142,37 +153,20 @@ async def process_chat_answer(db: Session, session_id: str, slots: Dict[str, Any
     current_state['history'].append(f"System: {response_text}")
     session_data['dst_state'] = copy.deepcopy(current_state)
 
-    try:
-        # 将字典转换为 JSON 字符串存入数据库，防止报错
-        agent_state_str = json.dumps(agent_original_slots, ensure_ascii=False) if agent_original_slots else None
-        
-        # 只有在 hard 模式下才存 expert_state，否则为 'No' [因为很有可能对于这个问题的slot本身就是None,做一下区分]
-        expert_state_str = 'No' # TODO No感觉也一般般，后面可能要改为字典来统一格式
-        if if_hard:
-            expert_state_str = json.dumps(expert_final_slots, ensure_ascii=False) if expert_final_slots else "{}"
-
-        new_message = ChatMessage(
-            session_id=session_id,
-            role="assistant",           # 统一使用 standard role
-            content=response_text,      # 生成的文本
-            agent_state=agent_state_str, # Agent 最初的想法
-            expert_state=expert_state_str, # 专家修正后的想法 (Hard模式下才有)
-            created_at=datetime.utcnow()
-        )
-        db.add(new_message)
-        db_session_obj = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
-        if db_session_obj:
-            db_session_obj.updated_at = datetime.utcnow()
-        db.commit()
     
-    except Exception as e:
-        print(f"数据库存储失败: {e}")
-        db.rollback() # 只要出错就回滚，防止数据库死锁
-        # 注意：这里虽然数据库存失败了，但为了不阻塞用户体验，我们依然返回 response_text
+    save_chat_message(
+        db=db,
+        session_id=session_id,
+        content=response_text,
+        role="assistant",
+        agent_slots=agent_original_slots,
+        expert_slots=expert_final_slots if if_hard else None
+        # user_email 不传，因为是系统回复且 Session 肯定存在
+    )
 
     return {
         "content": response_text,
-        "source": 'Export' if if_hard else 'AI-Agent', # 前端根据这个 source 决定显示“专家图标”还是“机器人图标”
+        "source": 'Export' if if_hard else 'AI-Agent',
         "session_id": session_id
     }
 
@@ -204,65 +198,75 @@ def get_user_chat_history(db: Session, user_email: str, limit: int = 20):
     ]
 
 
-# 1. 存聊天记录 [前后端均可以调用]
-def insert_user_chat_history(db: Session, session_id: str, user_email: str, content: str,role: str):
+
+
+def save_chat_message(
+    db: Session, 
+    session_id: str, 
+    content: str, 
+    role: str, 
+    user_email: str = None, # 对于系统回复，如果会话已存在，email 可以不传
+    agent_slots: dict = None, 
+    expert_slots: dict = None,
+):
     """
-    存入用户发送的消息
-    参数 content: 即原代码中的 Message，改为 content 更符合语义
+    通用的消息存储函数：既能存 User 消息，也能存 Agent/System 消息
     """
-    
-    # 2. 统一获取一次时间，确保 session 和 message 的时间严格一致
     current_time = datetime.utcnow()
 
-    # 查用户
-    user = get_user_by_email(db, user_email)
-    if not user:
-        print(f"Error: User {user_email} not found.")
-        return False
+    chat_session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
+
+    if not chat_session:
+        if not user_email:
+            print(f"Error: 无法创建新会话，缺少 user_email。SessionID: {session_id}")
+            return False
+            
+        user = get_user_by_email(db, user_email)
+        if not user:
+            print(f"Error: User {user_email} not found.")
+            return False
+
+        # 创建新会话
+        session_title = content[:50] + "..." if len(content) > 50 else content
+        chat_session = ChatSession(
+            session_id=session_id, 
+            user_id=user.id, 
+            title=session_title,
+            created_at=current_time,
+            updated_at=current_time
+        )
+        db.add(chat_session)
+    else:
+        # 会话已存在，更新时间
+        chat_session.updated_at = current_time
 
     try:
-        # --- 处理会话 (Session) ---
-        chat_session = db.query(ChatSession).filter(ChatSession.session_id == session_id).first()
-        
-        if not chat_session:
-            # 如果是新会话，创建它
-            # 处理标题：如果内容太长，截取前50个字符作为标题
-            session_title = content[:50] + "..." if len(content) > 50 else content
-            
-            chat_session = ChatSession(
-                session_id=session_id, 
-                user_id=user.id, 
-                title=session_title,
-                created_at=current_time,
-                updated_at=current_time
-            )
-            db.add(chat_session)
-        else:
-            # 如果会话已存在，仅更新时间
-            chat_session.updated_at = current_time
-            # SQLAlchemy 会自动追踪 chat_session 的变化，
-            # 这里不需要再次 db.add(chat_session)，但写了也没错。
+        # 处理 Slots 数据的序列化 (把这部分逻辑封装在这里)
+        agent_state_str = None
+        if agent_slots:
+            agent_state_str = json.dumps(agent_slots, ensure_ascii=False)
 
-        # --- 处理消息 (Message) ---
+        expert_state_str = None 
+        if expert_slots:
+            expert_state_str = json.dumps(expert_slots, ensure_ascii=False)
+        else:
+            expert_state_str = "No" # 这里不能用None,因为这样无法区分对于这条消息,专家是否修正过[比如消息是?这类无意义消息,可能真实的slot就是None]
+
+        # 4. 创建消息
         new_message = ChatMessage(
             session_id=session_id, 
             role=role, 
             content=content,
+            agent_state=agent_state_str,   # 新增
+            expert_state=expert_state_str, # 新增
             created_at=current_time
-            # agent_state 和 expert_state 默认为 None 或数据库默认值
         )
         db.add(new_message)
-
-        # 3. 原子性提交：只 commit 一次
         db.commit()
-        
-        # 刷新对象以获取数据库生成的 ID (可选，如果你后续需要用到 new_message.id)
-        db.refresh(new_message) 
-        
+        db.refresh(new_message)
         return True
 
     except Exception as e:
-        # 4. 异常处理：如果中间出错，回滚所有操作
         db.rollback()
         print(f"Database Insert Error: {e}")
         return False
